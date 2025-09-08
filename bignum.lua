@@ -81,6 +81,10 @@ function bignum.multiply(num1, num2)
 end
 
 function bignum.divide(num1, num2)
+    -- 检查除零错误 (Check for division by zero)
+    if num2.significand == 0 then
+        error("除零错误：不能除以零 (Division by zero error: cannot divide by zero)")
+    end
     return bignum.new(
         num1.significand / num2.significand,
         num1.exponent - num2.exponent
@@ -97,29 +101,54 @@ local function sign(num)
 end
 
 function bignum.compare(num1, num2)
-    if sign(num1.significand) > sign(num2.significand) then
+    -- 首先比较符号 (First compare signs)
+    local sign1 = sign(num1.significand)
+    local sign2 = sign(num2.significand)
+    
+    if sign1 > sign2 then
         return 1
-    elseif sign(num1.significand) < sign(num2.significand) then
-        return -1
-    elseif num1.exponent > num2.exponent then
-        return 1
-    elseif num1.exponent < num2.exponent then
-        return -1
-    elseif num1.significand > num2.significand then
-        return 1
-    elseif num1.significand < num2.significand then
+    elseif sign1 < sign2 then
         return -1
     end
-    return 0
+    
+    -- 符号相同，比较绝对值的大小 (Same sign, compare absolute magnitude)
+    -- 计算实际的数值进行比较 (Calculate actual values for comparison)
+    local exp_diff = num1.exponent - num2.exponent
+    
+    if exp_diff > 15 then
+        -- num1 比 num2 大得多 (num1 is much larger than num2)
+        return sign1
+    elseif exp_diff < -15 then
+        -- num2 比 num1 大得多 (num2 is much larger than num1)
+        return -sign1
+    else
+        -- 需要精确比较 (Need precise comparison)
+        local val1, val2
+        if exp_diff >= 0 then
+            val1 = num1.significand * (10 ^ exp_diff)
+            val2 = num2.significand
+        else
+            val1 = num1.significand
+            val2 = num2.significand * (10 ^ (-exp_diff))
+        end
+        
+        if val1 > val2 then
+            return 1
+        elseif val1 < val2 then
+            return -1
+        else
+            return 0
+        end
+    end
 end
 
 function bignum.add(num1, num2)
     if num1 < num2 then
         num1, num2 = num2, num1
     end
-    -- if the smaller number is way smaller than the larger number,
-    -- do nothing
-    if num1.significand - num2.significand >= 100 then
+    -- 如果较小的数比较大的数小得多，直接返回较大的数 (If smaller number is much smaller, return larger number)
+    -- 当指数差异大于等于5时，较小的数对结果影响很小 (When exponent difference >= 5, smaller number has minimal impact)
+    if num1.exponent - num2.exponent >= 5 then
         return bignum.new(num1.significand, num1.exponent)
     end
 
@@ -132,7 +161,7 @@ function bignum.add(num1, num2)
 end
 
 function bignum.subtract(num1, num2)
-    return bignum.add(num1, -num2)
+    return bignum.add(num1, num2:negate())
 end
 
 function bignum.negate(num)
@@ -151,7 +180,12 @@ function bignum.pow(num, exp)
     if exp == 0 then
         return bignum.new(1)
     elseif bignum.compare(bignum.new(0), num) == 0 then
-        return bignum.new(0)
+        -- 0的正数次幂为0 (0 to positive power is 0)
+        if exp > 0 then
+            return bignum.new(0)
+        else
+            error("数学错误：0的负数次幂未定义 (Math error: 0 to negative power is undefined)")
+        end
     elseif exp < 0 then
         return bignum.pow(bignum.inverse(num), -exp)
     else
