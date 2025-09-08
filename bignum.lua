@@ -63,10 +63,36 @@ function bignum.new(significand, exponent)
 end
 
 function bignum.tostring(num)
-    if num.exponent < 14 and num.exponent > -5 then
-        return tostring(num.significand * 10 ^ num.exponent)
+    -- 计算实际值并格式化，避免科学计数法 (Calculate actual value and format, avoiding scientific notation)
+    if num.significand == 0 then
+        return "0"
     end
-    return num.significand .. "e" .. ("%d"):format(num.exponent)
+    
+    local sign = ""
+    if num.significand < 0 then
+        sign = "-"
+    end
+    
+    local abs_significand = math.abs(num.significand)
+    local exponent = num.exponent
+    
+    -- 计算实际值 (Calculate actual value)
+    local value = abs_significand * (10 ^ exponent)
+    
+    -- 使用 string.format 来避免科学计数法 (Use string.format to avoid scientific notation)
+    if value >= 1 then
+        -- 对于大于等于1的数，格式化为整数或小数
+        local formatted = string.format("%.15f", value)
+        -- 移除尾随的零和小数点 (Remove trailing zeros and decimal point)
+        formatted = formatted:gsub("%.?0+$", "")
+        return sign .. formatted
+    else
+        -- 对于小于1的数，使用足够的精度
+        local formatted = string.format("%.15f", value)
+        -- 移除尾随的零但保留必要的小数位 (Remove trailing zeros but keep necessary decimal places)
+        formatted = formatted:gsub("0+$", ""):gsub("%.$", "")
+        return sign .. formatted
+    end
 end
 
 function bignum.clone(num)

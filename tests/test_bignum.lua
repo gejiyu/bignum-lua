@@ -72,15 +72,19 @@ end
 local function test_tostring()
     -- 测试普通数字 (Test normal numbers)
     local num1 = bignum.new(123)
-    assert_equal(tostring(num1), "123.0", "普通数字应该正确转换为字符串 (Normal number should convert to string correctly)")
+    assert_equal(tostring(num1), "123", "普通数字应该正确转换为字符串 (Normal number should convert to string correctly)")
     
-    -- 测试科学记数法 (Test scientific notation)
+    -- 测试大数 (Test large numbers)
     local num2 = bignum.new(1.5, 20)
-    assert_equal(tostring(num2), "1.5e20", "大数应该使用科学记数法 (Large number should use scientific notation)")
+    assert_equal(tostring(num2), "150000000000000000000", "大数应该正确转换为字符串 (Large number should convert to string correctly)")
     
     -- 测试小数 (Test small numbers)
-    local num3 = bignum.new(1.5, -8)
-    assert_equal(tostring(num3), "1.5e-8", "小数应该使用科学记数法 (Small number should use scientific notation)")
+    local num3 = bignum.new(1.5, -2)
+    assert_equal(tostring(num3), "0.015", "小数应该正确转换为字符串 (Small number should convert to string correctly)")
+    
+    -- 测试零 (Test zero)
+    local num4 = bignum.new(0)
+    assert_equal(tostring(num4), "0", "零应该正确转换为字符串 (Zero should convert to string correctly)")
 end
 
 -- 克隆测试 (Clone tests)
