@@ -48,6 +48,11 @@ local function test_constructor()
     -- 测试通过调用操作符构造 (Test constructor via call operator)
     local via_call = bignum(42)
     assert_bignum_equal(via_call, bignum.new(42), "通过调用操作符构造应该工作 (Construction via call operator should work)")
+    
+    -- 测试超大数构造 (Test very large number construction - beyond 2^54)
+    local very_large = bignum.new(9.223372036854776, 60)  -- 超过 2^54 的数
+    assert_equal(very_large.significand, 9.223372036854776, "超大数的有效数字应该正确设置 (Very large number significand should be set correctly)")
+    assert_equal(very_large.exponent, 60, "超大数的指数应该正确设置 (Very large number exponent should be set correctly)")
 end
 
 -- 规范化测试 (Normalization tests)
@@ -85,6 +90,14 @@ local function test_tostring()
     -- 测试零 (Test zero)
     local num4 = bignum.new(0)
     assert_equal(tostring(num4), "0", "零应该正确转换为字符串 (Zero should convert to string correctly)")
+    
+    -- 测试超大数 (Test very large numbers - beyond 2^54)
+    local num5 = bignum.new(1.23456789, 60)  -- 超过 2^54 的数
+    assert_equal(tostring(num5), "1234567889999999900000000000000000000000000000000000000000000", "超大数应该正确转换为字符串 (Very large number should convert to string correctly)")
+    
+    -- 测试小数 (Test small numbers that don't underflow)
+    local num6 = bignum.new(1.23456789, -10)  -- 不会下溢的小数
+    assert_equal(tostring(num6), "0.000000000123457", "小数应该正确转换为字符串 (Small number should convert to string correctly)")
 end
 
 -- 克隆测试 (Clone tests)
@@ -116,6 +129,12 @@ local function test_multiplication()
     local one = bignum.new(1)
     local result_one = a * one
     assert_bignum_equal(result_one, a, "与一相乘应该得到原数 (Multiplication by one should give original number)")
+    
+    -- 超大数乘法 (Very large number multiplication - beyond 2^54)
+    local large_a = bignum.new(2.0, 60)  -- 2 * 10^60，简单明确
+    local large_b = bignum.new(3.0, 30)  -- 3 * 10^30，简单明确
+    local large_result = large_a * large_b
+    assert_bignum_equal(large_result, bignum.new(6.0, 90), "超大数乘法应该正确 (Very large number multiplication should be correct)")
 end
 
 -- 除法测试 (Division tests)
@@ -130,6 +149,12 @@ local function test_division()
     local one = bignum.new(1)
     local result_one = a / one
     assert_bignum_equal(result_one, a, "除以一应该得到原数 (Division by one should give original number)")
+    
+    -- 超大数除法 (Very large number division - beyond 2^54)
+    local large_a = bignum.new(9.0, 80)  -- 9 * 10^80
+    local large_b = bignum.new(3.0, 20)  -- 3 * 10^20
+    local large_result = large_a / large_b
+    assert_bignum_equal(large_result, bignum.new(3.0, 60), "超大数除法应该正确 (Very large number division should be correct)")
 end
 
 -- 比较测试 (Comparison tests)
@@ -155,6 +180,15 @@ local function test_comparison()
     local neg_b = -b
     assert_equal(neg_a < neg_b, true, "负数比较应该正确 (Negative number comparison should be correct)")
     assert_equal(neg_a > a, false, "负数应该小于正数 (Negative number should be less than positive)")
+    
+    -- 超大数比较 (Very large number comparison - beyond 2^54)
+    local very_large_a = bignum.new(9.0, 100)  -- 9 * 10^100
+    local very_large_b = bignum.new(1.0, 101)  -- 1 * 10^101 = 10 * 10^100
+    local very_large_c = bignum.new(9.0, 100)  -- 与 very_large_a 相等
+    
+    assert_equal(very_large_a == very_large_c, true, "相等的超大数应该被识别为相等 (Equal very large numbers should be recognized as equal)")
+    assert_equal(very_large_a < very_large_b, true, "较小的超大数应该被识别为更小 (Smaller very large number should be recognized as smaller)")
+    assert_equal(very_large_b > very_large_a, true, "较大的超大数应该被识别为更大 (Larger very large number should be recognized as larger)")
 end
 
 -- 加法测试 (Addition tests)
@@ -176,6 +210,12 @@ local function test_addition()
     local result_diff = c + d
     -- 应该是 1e5 + 1e2 = 100000 + 100 = 100100 = 1.001e5
     assert_bignum_equal(result_diff, bignum.new(1.001, 5), "不同指数的加法应该正确 (Addition with different exponents should be correct)")
+    
+    -- 超大数加法 (Very large number addition - beyond 2^54)
+    local large_a = bignum.new(1.0, 70)  -- 1 * 10^70
+    local large_b = bignum.new(2.0, 70)  -- 2 * 10^70
+    local large_result = large_a + large_b
+    assert_bignum_equal(large_result, bignum.new(3.0, 70), "超大数加法应该正确 (Very large number addition should be correct)")
 end
 
 -- 减法测试 (Subtraction tests)
@@ -194,6 +234,12 @@ local function test_subtraction()
     -- 减去自己 (Subtraction of self)
     local result_self = a - a
     assert_bignum_equal(result_self, zero, "减去自己应该得到零 (Subtraction of self should give zero)")
+    
+    -- 超大数减法 (Very large number subtraction - beyond 2^54)
+    local large_a = bignum.new(5.0, 90)  -- 5 * 10^90
+    local large_b = bignum.new(2.0, 90)  -- 2 * 10^90
+    local large_result = large_a - large_b
+    assert_bignum_equal(large_result, bignum.new(3.0, 90), "超大数减法应该正确 (Very large number subtraction should be correct)")
 end
 
 -- 取反测试 (Negation tests)
@@ -245,6 +291,11 @@ local function test_power()
     -- 负数幂 (Negative power)
     local result_neg_exp = base ^ (-2)
     assert_bignum_equal(result_neg_exp, bignum.new(0.25), "负数幂应该等于倒数的正数幂 (Negative power should equal reciprocal of positive power)")
+    
+    -- 超大数幂运算 (Very large number power - beyond 2^54)
+    local large_base = bignum.new(2.0, 50)  -- 2 * 10^50
+    local large_result = large_base ^ 2
+    assert_bignum_equal(large_result, bignum.new(4.0, 100), "超大数幂运算应该正确 (Very large number power should be correct)")
 end
 
 -- 边界情况测试 (Edge case tests)
@@ -270,6 +321,21 @@ local function test_edge_cases()
     -- 测试0的负数次幂错误处理 (Test 0 to negative power error handling)
     local success2, _ = pcall(function() return zero ^ (-1) end)
     assert_equal(success2, false, "0的负数次幂应该产生错误 (0 to negative power should produce error)")
+    
+    -- 测试极限超大数 (Test extreme very large numbers - way beyond 2^54)
+    local extreme_large = bignum.new(9.0, 200)  -- 9 * 10^200
+    local extreme_small = bignum.new(1.0, -100)  -- 1 * 10^(-100)
+    
+    -- 测试超大数的基本运算是否能正常工作
+    local extreme_sum = extreme_large + extreme_small
+    assert_bignum_equal(extreme_sum, extreme_large, "极限超大数加极限超小数应该等于超大数 (Extreme large plus extreme small should equal large)")
+    
+    local extreme_product = extreme_large * bignum.new(2.0)
+    assert_bignum_equal(extreme_product, bignum.new(1.8, 201), "极限超大数乘法应该正确 (Extreme large number multiplication should be correct)")
+    
+    -- 测试超大数的字符串转换
+    local large_str = tostring(bignum.new(1.0, 100))
+    assert_equal(#large_str > 100, true, "超大数的字符串表示应该很长 (Very large number string representation should be very long)")
 end
 
 -- 主测试函数 (Main test function)
