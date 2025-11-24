@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>100x100 车辆逃脱 - 必有解版</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #eef2f5;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            cursor: grab;
+        }
+        #game-container:active {
+            cursor: grabbing;
+        }
+        canvas {
+            display: block;
+            background-color: #ffffff;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        }
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+            backdrop-filter: blur(5px);
+            pointer-events: auto;
+            max-width: 260px;
+        }
+        h1 { margin: 0 0 5px 0; font-size: 20px; color: #333; }
+        .config-group { display: flex; flex-direction: column; gap: 5px; }
+        label { font-size: 12px; color: #666; font-weight: bold; }
+        input { padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        .stat { font-size: 14px; color: #333; display: flex; justify-content: space-between; }
+        .stat span { font-weight: bold; color: #2196F3; }
+        button {
+            padding: 10px; border: none; border-radius: 6px;
+            background-color: #4CAF50; color: white; cursor: pointer;
+            font-size: 15px; font-weight: bold; transition: background 0.2s; margin-top: 5px;
+        }
+        button:hover { background-color: #43a047; }
+        button:disabled { background-color: #a5d6a7; cursor: not-allowed; }
+        button.secondary { background-color: #607d8b; margin-top: 0; font-size: 13px; padding: 8px; }
+        button.secondary:hover { background-color: #546e7a; }
+        #message {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.85); color: #fff; padding: 30px 50px;
+            border-radius: 15px; font-size: 28px; display: none; pointer-events: none;
+            z-index: 100; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        #mini-map-hint {
+            margin-top: 10px; font-size: 12px; color: #999; text-align: center;
+            border-top: 1px solid #eee; padding-top: 10px;
+        }
+        #loading-text {
+            font-size: 12px; color: #e65100; display: none; text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui-layer">
+        <h1>逆向生成必解版</h1>
+        
+        <div class="config-group">
+            <label>网格大小 (N x N)</label>
+            <input type="number" id="cfg-size" value="20" min="10" max="200">
+        </div>
+        <div class="config-group">
+            <label>车辆数量 (建议适中)</label>
+            <input type="number" id="cfg-cars" value="30" min="1">
+        </div>
+        <div class="config-group">
+            <label>路障数量</label>
+            <input type="number" id="cfg-obstacles" value="15" min="0">
+        </div>
+
+        <button onclick="applyConfig()" id="btn-generate">生成新关卡</button>
+        <div id="loading-text">正在逆向构建关卡...</div>
+        
+        <hr style="width:100%; border:0; border-top:1px solid #eee; margin: 5px 0;">
+
+        <div class="stat">剩余车辆: <span id="car-count">0</span></div>
+        
+        <button class="secondary" onclick="game.resetView()">重置视角</button>
+        <div id="mini-map-hint">
+            点击车辆自动前行<br>
+            若顺序错误可能卡死
+        </div>
+    </div>
+
+    <div id="message">胜利！所有车辆已逃脱！</div>
+</div>
+
+<script>
+const CELL_SIZE = 40; 
+const GAP = 4; 
+const MOVE_DELAY = 20; 
+const COLORS = [
+    '#ef5350', '#ec407a', '#ab47bc', '#7e57c2', '#5c6bc0', 
+    '#42a5f5', '#29b6f6', '#26c6da', '#26a69a', '#66bb6a', 
+    '#9ccc65', '#d4e157', '#ffee58', '#ffca28', '#ffa726', '#ff7043'
+];
+
+const DIR = {
+    UP: { x: 0, y: -1, name: 'UP' },
+    DOWN: { x: 0, y: 1, name: 'DOWN' },
+    LEFT: { x: -1, y: 0, name: 'LEFT' },
+    RIGHT: { x: 1, y: 0, name: 'RIGHT' }
+};
+
+class Car {
+    constructor(id, x, y, direction, color) {
+        this.id = id;
+        this.x = x; 
+        this.y = y; 
+        this.direction = direction;
+        this.color = color;
+        this.length = 2;
+        this.isMoving = false; 
+    }
+
+    getOccupiedCells() {
+        const cells = [];
+        for (let i = 0; i < this.length; i++) {
+            cells.push({
+                x: this.x - (this.direction.x * i),
+                y: this.y - (this.direction.y * i)
+            });
+        }
+        return cells;
+    }
+
+    getNextHead() {
+        return { x: this.x + this.direction.x, y: this.y + this.direction.y };
+    }
+
+    // 获取倒车的后方坐标（用于生成算法）
+    getReverseBack() {
+        // 现在的尾巴位置
+        const tailX = this.x - (this.direction.x * (this.length - 1));
+        const tailY = this.y - (this.direction.y * (this.length - 1));
+        // 尾巴再往后退一格
+        return { 
+            x: tailX - this.direction.x,
+            y: tailY - this.direction.y
+        };
+    }
+}
+
+class Game {
+    constructor() {
+        this.canvas = document.getElementById('gameCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.container = document.getElementById('game-container');
+        
+        this.gridSize = 20;
+        this.cars = [];
+        this.obstacles = new Set(); 
+        this.grid = []; 
+        
+        this.isProcessing = false;
+        this.scale = 1.0;
+        this.offsetX = 0;
+        this.offsetY = 0;
+        this.isDragging = false;
+
+        this.initInput();
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+        
+        this.loop = this.loop.bind(this);
+        requestAnimationFrame(this.loop);
+    }
+
+    resize() {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+    }
+
+    initInput() {
+        this.container.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomSpeed = 0.001;
+            this.scale = Math.min(Math.max(0.1, this.scale - e.deltaY * zoomSpeed), 5);
+        });
+
+        this.container.addEventListener('mousedown', (e) => {
+            this.isDragging = false;
+            this.startDragX = e.clientX;
+            this.startDragY = e.clientY;
+            this.lastMouseX = e.clientX;
+            this.lastMouseY = e.clientY;
+            this.container.style.cursor = 'grabbing';
+            
+            const onMouseMove = (ev) => {
+                const dx = ev.clientX - this.lastMouseX;
+                const dy = ev.clientY - this.lastMouseY;
+                if (Math.abs(ev.clientX - this.startDragX) > 5 || Math.abs(ev.clientY - this.startDragY) > 5) {
+                    this.isDragging = true;
+                }
+                this.offsetX += dx;
+                this.offsetY += dy;
+                this.lastMouseX = ev.clientX;
+                this.lastMouseY = ev.clientY;
+            };
+
+            const onMouseUp = (ev) => {
+                window.removeEventListener('mousemove', onMouseMove);
+                window.removeEventListener('mouseup', onMouseUp);
+                this.container.style.cursor = 'grab';
+                if (!this.isDragging) this.handleClick(ev.clientX, ev.clientY);
+            };
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+        });
+    }
+
+    screenToGrid(sx, sy) {
+        const worldX = (sx - this.offsetX) / this.scale;
+        const worldY = (sy - this.offsetY) / this.scale;
+        const gx = Math.floor(worldX / CELL_SIZE);
+        const gy = Math.floor(worldY / CELL_SIZE);
+        return { x: gx, y: gy };
+    }
+
+    handleClick(screenX, screenY) {
+        if (this.isProcessing) return;
+        const { x, y } = this.screenToGrid(screenX, screenY);
+        if (this.isValid(x, y)) {
+            const cellContent = this.grid[y][x];
+            if (cellContent && cellContent.type === 'car') {
+                const car = cellContent.ref;
+                if (!car.isMoving) this.startCarMovement(car);
+            }
+        }
+    }
+
+    async startCarMovement(car) {
+        car.isMoving = true;
+        this.isProcessing = true;
+
+        while (true) {
+            const next = car.getNextHead();
+            if (!this.isValid(next.x, next.y)) {
+                await this.animateMove(car, next.x, next.y);
+                this.removeCar(car);
+                this.checkWin();
+                break;
+            }
+            const content = this.grid[next.y][next.x];
+            if (content !== null) {
+                car.isMoving = false;
+                break;
+            }
+            this.updateGridPosition(car, next.x, next.y);
+            await this.wait(MOVE_DELAY);
+        }
+        car.isMoving = false;
+        this.isProcessing = false;
+    }
+
+    updateGridPosition(car, newHeadX, newHeadY) {
+        const oldCells = car.getOccupiedCells();
+        oldCells.forEach(c => {
+            if (this.isValid(c.x, c.y)) this.grid[c.y][c.x] = null;
+        });
+        car.x = newHeadX;
+        car.y = newHeadY;
+        const newCells = car.getOccupiedCells();
+        newCells.forEach(c => {
+            if (this.isValid(c.x, c.y)) this.grid[c.y][c.x] = { type: 'car', ref: car };
+        });
+    }
+
+    async animateMove(car, targetX, targetY) {
+        const oldCells = car.getOccupiedCells();
+        oldCells.forEach(c => {
+            if (this.isValid(c.x, c.y)) this.grid[c.y][c.x] = null;
+        });
+        car.x = targetX;
+        car.y = targetY;
+        await this.wait(MOVE_DELAY);
+    }
+
+    wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+    removeCar(car) {
+        this.cars = this.cars.filter(c => c.id !== car.id);
+        document.getElementById('car-count').innerText = this.cars.length;
+    }
+
+    checkWin() {
+        if (this.cars.length === 0) {
+            const msg = document.getElementById('message');
+            msg.style.display = 'block';
+            setTimeout(() => { msg.style.display = 'none'; }, 3000);
+        }
+    }
+
+    isValid(x, y) {
+        return x >= 0 && x < this.gridSize && y >= 0 && y < this.gridSize;
+    }
+
+    // ==========================================
+    // 核心算法：逆向生成 (保证有解)
+    // ==========================================
+    async generateLevel(size, targetCarCount, obstacleCount) {
+        document.getElementById('loading-text').style.display = 'block';
+        document.getElementById('btn-generate').disabled = true;
+
+        // 使用 setTimeout 让 UI 先渲染出 loading 文字
+        setTimeout(() => {
+            this._generateLogic(size, targetCarCount, obstacleCount);
+            document.getElementById('loading-text').style.display = 'none';
+            document.getElementById('btn-generate').disabled = false;
+        }, 50);
+    }
+
+    _generateLogic(size, targetCarCount, obstacleCount) {
+        this.gridSize = size;
+        this.cars = [];
+        this.obstacles.clear();
+        this.grid = Array(size).fill(null).map(() => Array(size).fill(null));
+
+        // 1. 随机放置路障
+        let obsPlaced = 0;
+        let attempts = 0;
+        while(obsPlaced < obstacleCount && attempts < 50000) {
+            attempts++;
+            const x = Math.floor(Math.random() * size);
+            const y = Math.floor(Math.random() * size);
+            // 留出最外圈尽量少放路障，保证有出口
+            if (x === 0 || x === size-1 || y === 0 || y === size-1) {
+                if (Math.random() > 0.2) continue; // 80% 概率不放边缘
+            }
+
+            if (!this.grid[y][x]) {
+                this.grid[y][x] = { type: 'obstacle' };
+                this.obstacles.add(`${x},${y}`);
+                obsPlaced++;
+            }
+        }
+
+        // 2. 逆向生成车辆
+        // 策略：不断尝试在边界生成“刚要出去”的车，然后随机让场上的车倒车（向后退）
+        let created = 0;
+        attempts = 0;
+        const maxOperations = 100000; // 防止死循环
+
+        // 辅助：检查某个位置是否空闲
+        const isFree = (x, y) => {
+            if (!this.isValid(x, y)) return false;
+            return this.grid[y][x] === null;
+        };
+
+        // 辅助：强制放置车辆（不检查逻辑，只检查物理空间）
+        const placeCarRaw = (car) => {
+            const cells = car.getOccupiedCells();
+            for (let c of cells) {
+                if (!isFree(c.x, c.y)) return false;
+            }
+            this.cars.push(car);
+            cells.forEach(c => this.grid[c.y][c.x] = { type: 'car', ref: car });
+            return true;
+        };
+
+        // 辅助：逻辑倒车（更新 grid）
+        const moveCarBack = (car) => {
+            const backPos = car.getReverseBack();
+            if (!isFree(backPos.x, backPos.y)) return false;
+
+            // 清除原车头
+            const oldCells = car.getOccupiedCells(); // [头, 尾]
+            // 倒车后：头变成了原来的身子，尾巴往后延了一格
+            // 简单做法：删掉旧的，改坐标，放新的
+            oldCells.forEach(c => this.grid[c.y][c.x] = null);
+
+            car.x -= car.direction.x;
+            car.y -= car.direction.y;
+
+            const newCells = car.getOccupiedCells();
+            newCells.forEach(c => this.grid[c.y][c.x] = { type: 'car', ref: car });
+            return true;
+        }
+
+        let ops = 0;
+        while (this.cars.length < targetCarCount && ops < maxOperations) {
+            ops++;
+            
+            // 决策：是生成新车，还是倒车？
+            // 随着车辆增多，我们更倾向于倒车，把空间腾出来
+            const action = Math.random();
+            
+            if (action < 0.3) { 
+                // --- 尝试生成新车 (Spawn) ---
+                // 随机选四个边
+                const side = Math.floor(Math.random() * 4); // 0:上, 1:右, 2:下, 3:左
+                let spawnX, spawnY, dir;
+
+                // 这里的逻辑是：车是“正向”朝外的。
+                // 例如在上边界，车头朝上(UP)，位置在 (x, 0)。
+                // 我们把它放在边界内侧一格，即 (x, 0) 且朝上。
+                if (side === 0) { // 上边界，车朝上
+                    spawnX = Math.floor(Math.random() * size);
+                    spawnY = 0; 
+                    dir = DIR.UP;
+                } else if (side === 1) { // 右边界，车朝右
+                    spawnX = size - 1;
+                    spawnY = Math.floor(Math.random() * size);
+                    dir = DIR.RIGHT;
+                } else if (side === 2) { // 下边界，车朝下
+                    spawnX = Math.floor(Math.random() * size);
+                    spawnY = size - 1;
+                    dir = DIR.DOWN;
+                } else { // 左边界，车朝左
+                    spawnX = 0;
+                    spawnY = Math.floor(Math.random() * size);
+                    dir = DIR.LEFT;
+                }
+
+                const tempCar = new Car(created, spawnX, spawnY, dir, COLORS[created % COLORS.length]);
+                if (placeCarRaw(tempCar)) {
+                    created++;
+                    // 生成后立刻尝试倒车几次，避免堵在门口
+                    for(let k=0; k<5; k++) moveCarBack(tempCar);
+                }
+
+            } else {
+                // --- 尝试倒车 (Reverse Move) ---
+                if (this.cars.length === 0) continue;
+                // 随机选一辆车
+                const car = this.cars[Math.floor(Math.random() * this.cars.length)];
+                moveCarBack(car);
+            }
+        }
+
+        // 最后再进行一轮彻底的洗牌（倒车），确保没有车停在极其容易出去的位置
+        for (let i=0; i < this.cars.length * 10; i++) {
+            const car = this.cars[Math.floor(Math.random() * this.cars.length)];
+            moveCarBack(car);
+        }
+
+        document.getElementById('car-count').innerText = this.cars.length;
+        this.resetView();
+    }
+
+    resetView() {
+        const margin = 60;
+        const contentW = this.gridSize * CELL_SIZE;
+        const contentH = this.gridSize * CELL_SIZE;
+        const availableW = window.innerWidth;
+        const availableH = window.innerHeight;
+        this.scale = Math.min((availableW - margin) / contentW, (availableH - margin) / contentH);
+        if (this.scale > 1.5) this.scale = 1.5;
+        if (this.scale < 0.1) this.scale = 0.1;
+        this.offsetX = (availableW - contentW * this.scale) / 2;
+        this.offsetY = (availableH - contentH * this.scale) / 2;
+    }
+
+    loop() {
+        this.draw();
+        requestAnimationFrame(this.loop);
+    }
+
+    draw() {
+        this.ctx.fillStyle = '#eef2f5';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.save();
+        this.ctx.translate(this.offsetX, this.offsetY);
+        this.ctx.scale(this.scale, this.scale);
+
+        const mapWidth = this.gridSize * CELL_SIZE;
+        const mapHeight = this.gridSize * CELL_SIZE;
+
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.fillRect(0, 0, mapWidth, mapHeight);
+
+        if (this.scale > 0.2) {
+            this.ctx.strokeStyle = '#f0f0f0';
+            this.ctx.lineWidth = 1;
+            this.ctx.beginPath();
+            for (let i = 0; i <= this.gridSize; i++) {
+                const p = i * CELL_SIZE;
+                this.ctx.moveTo(p, 0); this.ctx.lineTo(p, mapHeight);
+                this.ctx.moveTo(0, p); this.ctx.lineTo(mapWidth, p);
+            }
+            this.ctx.stroke();
+        } else {
+            this.ctx.strokeStyle = '#ccc';
+            this.ctx.lineWidth = 2;
+            this.ctx.strokeRect(0, 0, mapWidth, mapHeight);
+        }
+
+        this.ctx.fillStyle = '#5d4037';
+        this.obstacles.forEach(key => {
+            const [gx, gy] = key.split(',').map(Number);
+            const p = 4;
+            this.ctx.fillRect(gx * CELL_SIZE + p, gy * CELL_SIZE + p, CELL_SIZE - 2*p, CELL_SIZE - 2*p);
+            this.ctx.strokeStyle = '#8d6e63'; this.ctx.lineWidth = 2;
+            this.ctx.beginPath();
+            this.ctx.moveTo(gx*CELL_SIZE+p, gy*CELL_SIZE+p);
+            this.ctx.lineTo(gx*CELL_SIZE+CELL_SIZE-p, gy*CELL_SIZE+CELL_SIZE-p);
+            this.ctx.moveTo(gx*CELL_SIZE+CELL_SIZE-p, gy*CELL_SIZE+p);
+            this.ctx.lineTo(gx*CELL_SIZE+p, gy*CELL_SIZE+CELL_SIZE-p);
+            this.ctx.stroke();
+        });
+
+        this.cars.forEach(car => {
+            const cells = car.getOccupiedCells();
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            cells.forEach(c => {
+                minX = Math.min(minX, c.x); minY = Math.min(minY, c.y);
+                maxX = Math.max(maxX, c.x); maxY = Math.max(maxY, c.y);
+            });
+            const px = minX * CELL_SIZE + GAP;
+            const py = minY * CELL_SIZE + GAP;
+            const pw = (maxX - minX + 1) * CELL_SIZE - GAP * 2;
+            const ph = (maxY - minY + 1) * CELL_SIZE - GAP * 2;
+
+            this.ctx.fillStyle = car.color;
+            this.roundRect(this.ctx, px, py, pw, ph, 8, true, false);
+            if (this.scale > 0.3) this.drawCarDetails(car, px, py, pw, ph);
+        });
+
+        this.ctx.strokeStyle = '#ef5350';
+        this.ctx.lineWidth = 4;
+        this.ctx.strokeRect(-2, -2, mapWidth+4, mapHeight+4);
+        this.ctx.restore();
+    }
+
+    drawCarDetails(car, x, y, w, h) {
+        let windshieldX, windshieldY, windshieldW, windshieldH;
+        let light1X, light1Y, light2X, light2Y;
+        
+        if (car.direction === DIR.RIGHT) {
+            windshieldW = w * 0.25; windshieldH = h * 0.8;
+            windshieldX = x + w - windshieldW - 5; windshieldY = y + (h - windshieldH)/2;
+            light1X = x + w - 4; light1Y = y + 4;
+            light2X = x + w - 4; light2Y = y + h - 10;
+        } else if (car.direction === DIR.LEFT) {
+            windshieldW = w * 0.25; windshieldH = h * 0.8;
+            windshieldX = x + 5; windshieldY = y + (h - windshieldH)/2;
+            light1X = x; light1Y = y + 4;
+            light2X = x; light2Y = y + h - 10;
+        } else if (car.direction === DIR.DOWN) {
+            windshieldW = w * 0.8; windshieldH = h * 0.25;
+            windshieldX = x + (w - windshieldW)/2; windshieldY = y + h - windshieldH - 5;
+            light1X = x + 4; light1Y = y + h - 4;
+            light2X = x + w - 10; light2Y = y + h - 4;
+        } else if (car.direction === DIR.UP) {
+            windshieldW = w * 0.8; windshieldH = h * 0.25;
+            windshieldX = x + (w - windshieldW)/2; windshieldY = y + 5;
+            light1X = x + 4; light1Y = y;
+            light2X = x + w - 10; light2Y = y;
+        }
+
+        this.ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        this.ctx.fillRect(windshieldX, windshieldY, windshieldW, windshieldH);
+        this.ctx.fillStyle = '#ffeb3b';
+        if (car.direction === DIR.LEFT || car.direction === DIR.RIGHT) {
+            this.ctx.fillRect(light1X, light1Y, 4, 6);
+            this.ctx.fillRect(light2X, light2Y, 4, 6);
+        } else {
+            this.ctx.fillRect(light1X, light1Y, 6, 4);
+            this.ctx.fillRect(light2X, light2Y, 6, 4);
+        }
+    }
+
+    roundRect(ctx, x, y, width, height, radius, fill, stroke) {
+        if (typeof stroke === 'undefined') stroke = true;
+        if (typeof radius === 'undefined') radius = 5;
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + width - radius, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+        ctx.lineTo(x + width, y + height - radius);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        ctx.lineTo(x + radius, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+        if (fill) ctx.fill();
+        if (stroke) ctx.stroke();
+    }
+}
+
+const game = new Game();
+function applyConfig() {
+    const size = parseInt(document.getElementById('cfg-size').value) || 20;
+    const cars = parseInt(document.getElementById('cfg-cars').value) || 10;
+    const obs = parseInt(document.getElementById('cfg-obstacles').value) || 5;
+    game.generateLevel(size, cars, obs);
+}
+applyConfig();
+
+</script>
+</body>
+</html>
